@@ -1,0 +1,87 @@
+name: Windguru to Windy
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+jobs:
+  update-stations:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get Windguru data and send to Windy
+        env:
+          WG_SEA_PASSWORD: ${{ secrets.WG_SEA_PASSWORD }}
+          WG_LAKE_PASSWORD: ${{ secrets.WG_LAKE_PASSWORD }}
+          WINDY_SEA_PASSWORD: ${{ secrets.WINDY_SEA_PASSWORD }}
+          WINDY_LAKE_PASSWORD: ${{ secrets.WINDY_LAKE_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          stations = [
+              {
+                  "name": "Sea",
+                  "wg_uid": "864547036924558",
+                  "windy_id": "Em4WLKb",
+                  "wg_password": os.environ["WG_SEA_PASSWORD"],
+                  "windy_password": os.environ["WINDY_SEA_PASSWORD"],
+              },
+              {
+                  "name": "Lake",
+                  "wg_uid": "868234024223328",
+                  "windy_id": "oDA8dfy",
+                  "wg_password": os.environ["WG_LAKE_PASSWORD"],
+                  "windy_password": os.environ["WINDY_LAKE_PASSWORD"],
+              },
+          ]
+
+          for s in stations:
+              print(f"Processing {s['name']}...")
+
+              # Get latest data from Windguru
+              wg = requests.get(
+                  "https://www.windguru.cz/int/wgsapi.php",
+                  params={
+                      "uid": s["wg_uid"],
+                      "q": "station_data_current",
+                      "password": s["wg_password"],
+                  },
+                  timeout=20,
+              )
+
+              wg.raise_for_status()
+              data = wg.json()
+
+              print(
+                  f"Windguru: {data['wind_avg']} m/s, "
+                  f"gust {data['wind_max']} m/s, "
+                  f"direction {data['wind_direction']}°, "
+                  f"temp {data['temperature']}°C"
+              )
+
+              # Send data to Windy
+              windy = requests.get(
+                  "https://stations.windy.com/api/v2/observation/update",
+                  params={
+                      "id": s["windy_id"],
+                      "wind": data["wind_avg"],
+                      "gust": data["wind_max"],
+                      "winddir": round(data["wind_direction"]),
+                      "temp": data["temperature"],
+                      "time": "now",
+                      "PASSWORD": s["windy_password"],
+                  },
+                  timeout=20,
+              )
+
+              print(f"Windy response: HTTP {windy.status_code}")
+              print(windy.text)
+
+              if windy.status_code not in (200, 201, 409):
+                  windy.raise_for_status()
+
+          print("Finished.")
+          PY
