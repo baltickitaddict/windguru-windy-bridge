@@ -16,7 +16,6 @@ jobs:
           WG_LAKE_PASSWORD: ${{ secrets.WG_LAKE_PASSWORD }}
           WINDY_SEA_PASSWORD: ${{ secrets.WINDY_SEA_PASSWORD }}
           WINDY_LAKE_PASSWORD: ${{ secrets.WINDY_LAKE_PASSWORD }}
-
         run: |
           python - <<'PY'
           import os
@@ -25,16 +24,22 @@ jobs:
           stations = [
               {
                   "name": "Sea",
-                  "wg_uid": "864547036924558",
+                  "wg_params": {
+                      "uid": "864547036924558",
+                      "q": "station_data_current",
+                      "password": os.environ["WG_SEA_PASSWORD"],
+                  },
                   "windy_id": "Em4WLKb",
-                  "wg_password": os.environ["WG_SEA_PASSWORD"],
                   "windy_password": os.environ["WINDY_SEA_PASSWORD"],
               },
               {
                   "name": "Lake",
-                  "wg_uid": "868234024223328",
+                  "wg_params": {
+                      "id_station": "887",
+                      "q": "station_data_current",
+                      "password": os.environ["WG_LAKE_PASSWORD"],
+                  },
                   "windy_id": "oDA8dfy",
-                  "wg_password": os.environ["WG_LAKE_PASSWORD"],
                   "windy_password": os.environ["WINDY_LAKE_PASSWORD"],
               },
           ]
@@ -42,18 +47,18 @@ jobs:
           for s in stations:
               print(f"Processing {s['name']}...")
 
+              # Get latest data from Windguru
               wg = requests.get(
                   "https://www.windguru.cz/int/wgsapi.php",
-                  params={
-                      "uid": s["wg_uid"],
-                      "q": "station_data_current",
-                      "password": s["wg_password"],
-                  },
+                  params=s["wg_params"],
                   timeout=20,
               )
 
               if wg.status_code != 200:
-                  print(f"Windguru ERROR for {s['name']}: HTTP {wg.status_code}")
+                  print(
+                      f"Windguru ERROR for {s['name']}: "
+                      f"HTTP {wg.status_code}"
+                  )
                   print(wg.text)
                   continue
 
@@ -66,6 +71,7 @@ jobs:
                   f"temp {data['temperature']}°C"
               )
 
+              # Send data to Windy
               windy = requests.get(
                   "https://stations.windy.com/api/v2/observation/update",
                   params={
@@ -82,6 +88,9 @@ jobs:
 
               print(f"Windy response: HTTP {windy.status_code}")
               print(windy.text)
+
+              if windy.status_code not in (200, 201, 409):
+                  windy.raise_for_status()
 
           print("Finished.")
           PY
